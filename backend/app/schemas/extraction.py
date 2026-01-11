@@ -47,6 +47,7 @@ class ProcessingStage(str, Enum):
     LLM_EXTRACTION = "llm_extraction"
     VALIDATION = "validation"
     COMPLETE = "complete"
+    UNKNOWN = "unknown"
 
 
 class ExtractionMetrics(BaseModel):

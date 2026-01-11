@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0")  # nosec B104 - Intentional for Docker
     api_port: int = Field(default=8000)
     api_prefix: str = Field(default="/api/v1")
+    api_rate_limit: int = Field(default=60)  # Requests per minute
 
     # ===========================================
     # CORS Settings

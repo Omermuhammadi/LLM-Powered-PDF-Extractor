@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.v1 import api_router
 from app.core import PDFExtractorError, console, log_startup_info, logger, settings
 
 
@@ -152,12 +153,11 @@ async def api_health_check() -> dict[str, str]:
 
 
 # ===========================================
-# API Router Registration (Future Phases)
+# API Router Registration
 # ===========================================
 
-# TODO: Phase 9 - Register API routers
-# from app.api.v1.endpoints import extract, health
-# app.include_router(extract.router, prefix=settings.api_prefix, tags=["Extraction"])
+# Register v1 API router with prefix
+app.include_router(api_router, prefix=settings.api_prefix)
 
 
 if __name__ == "__main__":
