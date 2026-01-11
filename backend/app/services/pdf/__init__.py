@@ -7,6 +7,13 @@ Provides functionality for:
 - Text cleaning and processing
 """
 
+from app.services.pdf.detector import (
+    DetectionResult,
+    DocumentType,
+    detect_document_type,
+    is_invoice,
+    is_resume,
+)
 from app.services.pdf.extractor import (
     PDFExtractionResult,
     extract_text_from_pdf,
@@ -24,6 +31,12 @@ from app.services.pdf.processor import (
 )
 
 __all__ = [
+    # Detection
+    "DocumentType",
+    "DetectionResult",
+    "detect_document_type",
+    "is_invoice",
+    "is_resume",
     # Extraction
     "PDFExtractionResult",
     "extract_text_from_pdf",
