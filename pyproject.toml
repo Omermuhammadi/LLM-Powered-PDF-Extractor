@@ -78,6 +78,10 @@ python_functions = ["test_*"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short"
 
+[tool.bandit]
+exclude_dirs = ["backend/tests", "backend/scripts"]
+skips = ["B101"]
+
 [tool.flake8]
 max-line-length = 88
 extend-ignore = "D100,D104,D107,D200,D205,D400,D401"
