@@ -156,11 +156,25 @@ class LLMConnectionError(LLMError):
 class LLMTimeoutError(LLMError):
     """Raised when LLM request times out."""
 
-    def __init__(self, timeout_seconds: int) -> None:
+    def __init__(
+        self,
+        provider: str = "llm",
+        timeout_seconds: int = 60,
+        elapsed_seconds: float | None = None,
+    ) -> None:
+        elapsed_info = ""
+        if elapsed_seconds is not None:
+            elapsed_info = f" (elapsed: {elapsed_seconds:.1f}s)"
+        msg = f"LLM request to {provider} timed out after {timeout_seconds}s"
+        msg += elapsed_info
         super().__init__(
-            message=f"LLM request timed out after {timeout_seconds} seconds",
+            message=msg,
             code="LLM_TIMEOUT",
-            details={"timeout_seconds": timeout_seconds},
+            details={
+                "provider": provider,
+                "timeout_seconds": timeout_seconds,
+                "elapsed_seconds": elapsed_seconds,
+            },
         )
 
 
@@ -240,4 +254,18 @@ class LowConfidenceError(ExtractionError):
             message=f"Confidence ({confidence:.2%}) below threshold ({threshold:.2%})",
             code="LOW_CONFIDENCE",
             details={"confidence": confidence, "threshold": threshold},
+        )
+
+
+class ExtractionParseError(ExtractionError):
+    """Raised when parsing LLM extraction response fails."""
+
+    def __init__(self, reason: str, raw_response: str | None = None) -> None:
+        super().__init__(
+            message=f"Failed to parse extraction response: {reason}",
+            code="EXTRACTION_PARSE_ERROR",
+            details={
+                "reason": reason,
+                "raw_response": raw_response[:500] if raw_response else None,
+            },
         )
