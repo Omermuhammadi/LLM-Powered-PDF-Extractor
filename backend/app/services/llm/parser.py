@@ -309,7 +309,12 @@ def clean_extracted_data(
 
     # Type coercion for invoice fields
     if document_type == "invoice":
-        for amount_field in ["total_amount", "tax_amount", "subtotal"]:
+        for amount_field in [
+            "total_amount",
+            "tax_amount",
+            "subtotal",
+            "shipping_amount",
+        ]:
             if amount_field in cleaned and cleaned[amount_field] is not None:
                 try:
                     val = cleaned[amount_field]
@@ -319,5 +324,20 @@ def clean_extracted_data(
                         cleaned[amount_field] = float(val)
                 except (ValueError, TypeError):
                     pass
+
+        # Normalize line items
+        if "line_items" in cleaned and isinstance(cleaned["line_items"], list):
+            for item in cleaned["line_items"]:
+                if isinstance(item, dict):
+                    # Normalize price/unit_price
+                    if "price" in item and "unit_price" not in item:
+                        item["unit_price"] = item["price"]
+                    # Convert string amounts to floats
+                    for field in ["unit_price", "price", "amount", "quantity"]:
+                        if field in item and isinstance(item[field], str):
+                            try:
+                                item[field] = float(re.sub(r"[,$€£]", "", item[field]))
+                            except (ValueError, TypeError):
+                                pass
 
     return cleaned

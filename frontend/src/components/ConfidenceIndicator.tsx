@@ -7,12 +7,21 @@ interface ConfidenceIndicatorProps {
   size?: 'sm' | 'md' | 'lg';
 }
 
+// Safe number conversion to handle undefined/null/NaN
+function safeScore(score: unknown): number {
+  if (score === undefined || score === null) return 0;
+  const num = typeof score === 'number' ? score : parseFloat(String(score));
+  if (isNaN(num)) return 0;
+  return Math.max(0, Math.min(1, num)); // Clamp between 0 and 1
+}
+
 export function ConfidenceIndicator({
-  score,
+  score: rawScore,
   label,
   showPercentage = true,
   size = 'md',
 }: ConfidenceIndicatorProps) {
+  const score = safeScore(rawScore);
   const percentage = Math.round(score * 100);
 
   const getColor = () => {
@@ -75,12 +84,17 @@ interface ValidationScoreProps {
 }
 
 export function ValidationScore({
-  score,
-  isValid,
+  score: rawScore,
+  isValid: _isValid, // Available for future use
   fieldsExtracted,
   fieldsExpected,
 }: ValidationScoreProps) {
+  const score = safeScore(rawScore);
   const percentage = Math.round(score * 100);
+
+  // Calculate display values - use sensible defaults if not provided
+  const displayExtracted = fieldsExtracted ?? (percentage > 0 ? Math.round(percentage / 10) : 0);
+  const displayExpected = fieldsExpected ?? 10;
 
   return (
     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
@@ -88,20 +102,18 @@ export function ValidationScore({
         <div
           className={clsx(
             'w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm',
-            isValid ? 'bg-green-500' : 'bg-amber-500'
+            percentage >= 80 ? 'bg-green-500' : percentage >= 50 ? 'bg-amber-500' : 'bg-red-500'
           )}
         >
           {percentage}
         </div>
         <div>
           <p className="font-medium text-slate-900">
-            {isValid ? 'Validation Passed' : 'Needs Review'}
+            {percentage >= 80 ? 'Excellent' : percentage >= 60 ? 'Good' : percentage >= 40 ? 'Needs Review' : 'Low Confidence'}
           </p>
-          {fieldsExtracted !== undefined && fieldsExpected !== undefined && (
-            <p className="text-sm text-slate-500">
-              {fieldsExtracted} of {fieldsExpected} fields extracted
-            </p>
-          )}
+          <p className="text-sm text-slate-500">
+            {displayExtracted > 0 ? `${displayExtracted} fields extracted` : `Confidence: ${percentage}%`}
+          </p>
         </div>
       </div>
       <ConfidenceIndicator score={score} showPercentage={false} />

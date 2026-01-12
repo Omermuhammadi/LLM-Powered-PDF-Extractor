@@ -6,19 +6,19 @@ export function Header() {
   const [status, setStatus] = useState<'checking' | 'healthy' | 'unhealthy'>('checking');
 
   useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const health = await getHealth();
+        setStatus(health.status === 'healthy' ? 'healthy' : 'unhealthy');
+      } catch {
+        setStatus('unhealthy');
+      }
+    };
+
     checkHealth();
     const interval = setInterval(checkHealth, 30000); // Check every 30s
     return () => clearInterval(interval);
   }, []);
-
-  const checkHealth = async () => {
-    try {
-      const health = await getHealth();
-      setStatus(health.status === 'healthy' ? 'healthy' : 'unhealthy');
-    } catch {
-      setStatus('unhealthy');
-    }
-  };
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-10">

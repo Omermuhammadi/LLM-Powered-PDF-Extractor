@@ -5,18 +5,21 @@ Loads configuration from environment variables with sensible defaults
 optimized for CPU-only environments running Phi-3 Mini via Ollama.
 """
 
-from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Find .env file relative to this config file
+_env_file = Path(__file__).parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_env_file),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -71,8 +74,9 @@ class Settings(BaseSettings):
     llm_mode: str = Field(default="local")  # "local" or "cloud"
     ollama_host: str = Field(default="http://localhost:11434")
     ollama_model: str = Field(default="phi3:mini")
-    llm_timeout: int = Field(default=60)
-    llm_max_retries: int = Field(default=3)
+    llm_timeout: int = Field(default=300)  # 5 minutes for multipage docs
+    llm_max_retries: int = Field(default=2)  # Retry twice on failure
+    llm_max_tokens: int = Field(default=1024)  # Enough for complex invoices
 
     # ===========================================
     # Cloud LLM (Optional - Groq API)
@@ -116,12 +120,11 @@ class Settings(BaseSettings):
         return v
 
 
-@lru_cache
 def get_settings() -> Settings:
     """
-    Get cached settings instance.
+    Get settings instance.
 
-    Uses lru_cache to ensure settings are only loaded once.
+    Creates fresh instance to pick up .env changes.
     """
     return Settings()
 

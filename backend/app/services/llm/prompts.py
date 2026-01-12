@@ -1,8 +1,9 @@
 """
 Prompt templates for document extraction.
 
-Provides structured prompts optimized for Phi-3 Mini to extract
+Provides structured prompts optimized for LLM to extract
 fields from invoices, resumes, and other document types.
+Production-grade prompts with high accuracy for diverse templates.
 """
 
 from dataclasses import dataclass
@@ -35,42 +36,100 @@ class PromptTemplate:
 
 
 # =============================================================================
-# Invoice Extraction Prompt
+# PRODUCTION-GRADE Invoice Extraction Prompt
 # =============================================================================
 
-INVOICE_SYSTEM_PROMPT = """You are a precise document extraction AI. Your task is to extract structured data from invoice text.
+INVOICE_SYSTEM_PROMPT = """You are an expert invoice data extraction AI with 99.9% accuracy. Your job is to extract structured data from invoice documents of ANY format or template.
 
-IMPORTANT RULES:
-1. Return ONLY valid JSON - no explanations, no markdown, no extra text
-2. Use null for any field you cannot find or are unsure about
-3. Do NOT invent or hallucinate information
-4. Extract exact values as they appear in the document
-5. For dates, convert to YYYY-MM-DD format when possible
-6. For amounts, extract as numbers without currency symbols"""
+CRITICAL EXTRACTION RULES:
+1. Return ONLY valid JSON - absolutely no explanations, markdown, or extra text
+2. Use null for any field NOT found in the document
+3. NEVER invent, guess, or hallucinate data - extract only what exists
+4. Read numbers with extreme precision - quantity, unit price, and line amounts are DIFFERENT values
+5. Distinguish between identifiers carefully:
+   - Invoice Number/ID: Usually labeled "Invoice #", "Invoice No.", "Invoice ID", "INV-"
+   - Order ID/PO Number: Usually labeled "Order #", "PO #", "Reference", "Customer PO"
+   - These are NOT the same thing!
 
-INVOICE_USER_TEMPLATE = """Extract the following fields from this invoice:
+CURRENCY DETECTION - EXTREMELY IMPORTANT:
+- Look for explicit "Currency:" field in the document - this is the DEFINITIVE currency
+- Look for currency labels like "PKR", "USD", "EUR", "GBP", "INR" near amounts
+- Check column headers: "Amount (PKR)", "Unit Price (PKR)", "Price (USD)" etc.
+- If the document says "Currency: PKR", ALL amounts are in PKR - do NOT use $ symbol
+- Return the 3-letter currency CODE (PKR, USD, EUR, etc.) in the "currency" field
+- For line items, extract ONLY the numeric values without any currency symbols
 
-REQUIRED FIELDS:
-- vendor_name (string): The company/person issuing the invoice
-- invoice_number (string): The invoice ID/number/reference
-- invoice_date (string): Invoice date in YYYY-MM-DD format
-- total_amount (number): The final total amount to pay
+COMMON INVOICE LAYOUTS TO RECOGNIZE:
+1. Traditional: Header with vendor info, bill-to, invoice details, line items table, totals
+2. Modern/Minimal: Clean design, sparse labels, amounts may be right-aligned
+3. International: May have multiple currencies, VAT numbers, different date formats
+4. E-commerce: Order IDs prominent, shipping info, tracking numbers
+5. Service invoices: Time-based billing, hourly rates, project descriptions
+6. Itemized retail: SKUs, barcodes, discounts per line
 
-OPTIONAL FIELDS:
-- currency (string): Currency code like USD, EUR, GBP (default: USD)
-- tax_amount (number): Tax amount if shown separately
-- subtotal (number): Subtotal before tax
-- due_date (string): Payment due date in YYYY-MM-DD format
-- bill_to (string): Customer/recipient name or company
-- line_items (array): List of items with description, quantity, price
+FIELD EXTRACTION GUIDELINES:
+- vendor_name: The company/person ISSUING the invoice (seller), NOT the customer
+- bill_to/customer: The party being CHARGED (buyer)
+- invoice_number: The unique identifier for THIS invoice document
+- Dates: Convert to YYYY-MM-DD format when possible
+- Amounts: Extract as NUMBERS only, without currency symbols
+- Line items: Each row in the items table with description, quantity, rate, amount"""
 
-EXAMPLE OUTPUT:
-{{"vendor_name": "ABC Corp", "invoice_number": "INV-001", "invoice_date": "2024-03-15", "total_amount": 1500.00, "currency": "USD", "tax_amount": 100.00, "subtotal": 1400.00, "due_date": "2024-04-15", "bill_to": "Customer Inc", "line_items": [{{"description": "Service", "quantity": 1, "price": 1400.00}}]}}
+INVOICE_USER_TEMPLATE = """Extract ALL invoice data from the document below. Be thorough and precise.
 
-INVOICE TEXT:
+REQUIRED JSON STRUCTURE:
+{{
+  "vendor_name": "Company issuing the invoice (seller name from header/logo)",
+  "vendor_address": "Seller's full address if shown",
+  "vendor_email": "Seller's email if shown",
+  "vendor_phone": "Seller's phone if shown",
+  "invoice_number": "The INVOICE number (NOT order/PO number)",
+  "invoice_date": "Date in YYYY-MM-DD format",
+  "due_date": "Payment due date in YYYY-MM-DD format",
+  "order_id": "Order/PO/Reference number if different from invoice number",
+  "bill_to": "Customer name and address being billed",
+  "ship_to": "Shipping address if different from bill_to",
+  "currency": "Currency code (USD, EUR, GBP, INR, etc.)",
+  "line_items": [
+    {{
+      "description": "Item/service description",
+      "quantity": 1,
+      "unit_price": 10.00,
+      "amount": 10.00,
+      "sku": "Product code if shown",
+      "discount": 0.00
+    }}
+  ],
+  "subtotal": "Sum of line items before tax/shipping",
+  "tax_amount": "Tax/VAT/GST amount",
+  "tax_rate": "Tax percentage if shown (e.g., '8.25%' or 8.25)",
+  "shipping_amount": "Shipping/delivery charge",
+  "discount_amount": "Total discount if any",
+  "total_amount": "Final amount due (the biggest/bottom total)",
+  "amount_paid": "Amount already paid if shown",
+  "balance_due": "Remaining balance if shown",
+  "payment_terms": "Payment terms (Net 30, Due on Receipt, etc.)",
+  "payment_method": "Accepted payment methods if listed",
+  "notes": "Any additional notes, terms, or messages"
+}}
+
+LINE ITEM EXTRACTION - READ CAREFULLY:
+- "Qty" or "Quantity" column = quantity (usually small: 1, 2, 3, 5, 10)
+- "Rate", "Unit Price", "Price Each" column = unit_price (price for ONE item)
+- "Amount", "Total", "Line Total" column = amount (quantity × unit_price)
+
+EXAMPLE: A row showing "Widget | 3 | $18.90 | $56.70"
+Means: quantity=3, unit_price=18.90, amount=56.70
+
+AMOUNT VALIDATION:
+- Line amount should ≈ quantity × unit_price
+- Subtotal should ≈ sum of all line amounts
+- Total should ≈ subtotal + tax + shipping - discounts
+
+DOCUMENT TEXT TO EXTRACT FROM:
 {text}
 
-JSON:"""
+Return ONLY the JSON object with extracted data:"""
 
 INVOICE_PROMPT = PromptTemplate(
     system=INVOICE_SYSTEM_PROMPT,

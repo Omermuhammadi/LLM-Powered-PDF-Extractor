@@ -1,12 +1,12 @@
 import axios from 'axios';
 import type { AxiosProgressEvent } from 'axios';
-import type { ExtractionResponse, HealthResponse } from '../types';
+import type { ExtractionResponse, HealthResponse, BatchExtractionResponse } from '../types';
 
 const API_BASE = '/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 300000, // 5 minutes for extraction
+  timeout: 600000, // 10 minutes for large multipage documents
 });
 
 export interface ExtractOptions {
@@ -30,6 +30,37 @@ export async function extractFromPdf(
   formData.append('include_raw_text', String(options.includeRawText ?? false));
 
   const response = await api.post<ExtractionResponse>('/extract/', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+      if (progressEvent.total && options.onProgress) {
+        const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        options.onProgress(Math.min(progress, 50)); // Upload is 0-50%
+      }
+    },
+  });
+
+  return response.data;
+}
+
+export async function extractFromPdfBatch(
+  files: File[],
+  options: ExtractOptions = {}
+): Promise<BatchExtractionResponse> {
+  const formData = new FormData();
+
+  // Append all files
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  if (options.documentType) {
+    formData.append('document_type', options.documentType);
+  }
+  formData.append('validate_output', String(options.validateOutput ?? true));
+
+  const response = await api.post<BatchExtractionResponse>('/extract/batch', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },

@@ -1,38 +1,101 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
-import { UploadZone } from './components/UploadZone';
+import { MultiUploadZone } from './components/MultiUploadZone';
 import { ProgressBar } from './components/ProgressBar';
 import { ResultsPanel } from './components/ResultsPanel';
-import { extractFromPdf } from './services/api';
-import type { UploadState } from './types';
+import { BatchResultsPanel } from './components/BatchResultsPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { extractFromPdf, extractFromPdfBatch } from './services/api';
+import type { UploadState, ExtractionResponse, BatchExtractionResponse } from './types';
 import { AlertCircle, RotateCcw } from 'lucide-react';
 
 function App() {
   const [uploadState, setUploadState] = useState<UploadState>({
-    file: null,
+    files: [],
     progress: 0,
     status: 'idle',
   });
 
-  const handleFileSelect = useCallback(async (file: File) => {
+  // Track if component is mounted to prevent state updates on unmounted component
+  const isMounted = useRef(true);
+
+  // Track current extraction request to prevent race conditions
+  const currentRequestId = useRef<number>(0);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // Debug logging to track state changes
+  useEffect(() => {
+    console.log('[App] Upload state changed:', {
+      status: uploadState.status,
+      fileCount: uploadState.files.length,
+      hasResult: !!uploadState.result,
+      hasBatchResult: !!uploadState.batchResult,
+      hasError: !!uploadState.error,
+    });
+  }, [uploadState]);
+
+  const handleFilesSelect = useCallback(async (files: File[]) => {
+    console.log('[App] Files selected:', files.map(f => f.name));
+
+    // Increment request ID to track this specific request
+    const requestId = ++currentRequestId.current;
+
     setUploadState({
-      file,
+      files,
       progress: 0,
       status: 'uploading',
     });
 
     try {
       // Start extraction
-      const result = await extractFromPdf(file, {
-        validateOutput: true,
-        onProgress: (progress) => {
-          setUploadState((prev) => ({
-            ...prev,
-            progress,
-            status: progress < 50 ? 'uploading' : 'processing',
-          }));
-        },
-      });
+      console.log('[App] Starting extraction (request:', requestId, ')...');
+
+      let result: ExtractionResponse | undefined;
+      let batchResult: BatchExtractionResponse | undefined;
+
+      if (files.length === 1) {
+        // Single file - use regular endpoint for efficiency
+        result = await extractFromPdf(files[0], {
+          validateOutput: true,
+          onProgress: (progress) => {
+            if (currentRequestId.current === requestId && isMounted.current) {
+              setUploadState((prev) => ({
+                ...prev,
+                progress,
+                status: progress < 50 ? 'uploading' : 'processing',
+              }));
+            }
+          },
+        });
+      } else {
+        // Multiple files - use batch endpoint
+        batchResult = await extractFromPdfBatch(files, {
+          validateOutput: true,
+          onProgress: (progress) => {
+            if (currentRequestId.current === requestId && isMounted.current) {
+              setUploadState((prev) => ({
+                ...prev,
+                progress,
+                status: progress < 50 ? 'uploading' : 'processing',
+              }));
+            }
+          },
+        });
+      }
+
+      // Only process result if this is still the current request
+      if (currentRequestId.current !== requestId || !isMounted.current) {
+        console.log('[App] Request', requestId, 'was superseded, ignoring result');
+        return;
+      }
+
+      console.log('[App] Extraction completed for request', requestId);
 
       // Simulate processing progress after upload
       setUploadState((prev) => ({
@@ -42,33 +105,68 @@ function App() {
       }));
 
       // Small delay to show processing state
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Final check before setting success state
+      if (currentRequestId.current !== requestId || !isMounted.current) {
+        return;
+      }
 
       setUploadState({
-        file,
+        files,
         progress: 100,
         status: 'success',
         result,
+        batchResult,
       });
+
+      console.log('[App] State set to success for request', requestId);
     } catch (error) {
+      // Only handle error if this is still the current request
+      if (currentRequestId.current !== requestId || !isMounted.current) {
+        console.log('[App] Request', requestId, 'error ignored (superseded)');
+        return;
+      }
+
+      console.error('[App] Extraction error for request', requestId, ':', error);
+
       const errorMessage =
         error instanceof Error ? error.message : 'An unknown error occurred';
 
       // Try to extract more specific error from axios response
-      let detailedError = errorMessage;
-      if ((error as { response?: { data?: { detail?: string | { error?: string; message?: string } } } }).response?.data?.detail) {
-        const detail = (error as { response: { data: { detail: string | { error?: string; message?: string } } } }).response.data.detail;
-        if (typeof detail === 'string') {
-          detailedError = detail;
-        } else if (detail.message) {
+      let detailedError: string = errorMessage;
+      const maybeResponse = (error as {
+        response?: { data?: { detail?: unknown } };
+      }).response;
+
+      const detail = maybeResponse?.data?.detail as
+        | string
+        | {
+            message?: string;
+            error?: unknown;
+          }
+        | undefined;
+
+      if (typeof detail === 'string') {
+        detailedError = detail;
+      } else if (detail && typeof detail === 'object') {
+        if (typeof detail.message === 'string') {
           detailedError = detail.message;
         } else if (detail.error) {
-          detailedError = detail.error;
+          const err = detail.error as
+            | string
+            | { message?: string; code?: string };
+          if (typeof err === 'string') {
+            detailedError = err;
+          } else if (err && typeof err === 'object') {
+            detailedError =
+              err.message || err.code || JSON.stringify(err);
+          }
         }
       }
 
       setUploadState({
-        file,
+        files,
         progress: 100,
         status: 'error',
         error: detailedError,
@@ -77,8 +175,9 @@ function App() {
   }, []);
 
   const handleReset = useCallback(() => {
+    console.log('[App] Resetting state');
     setUploadState({
-      file: null,
+      files: [],
       progress: 0,
       status: 'idle',
     });
@@ -96,17 +195,18 @@ function App() {
         <section className="mb-8">
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold text-slate-900 mb-2">
-              Extract Data from Your PDF
+              Extract Data from Your PDFs
             </h2>
             <p className="text-slate-600">
-              Upload an invoice or document and let AI extract structured data automatically
+              Upload up to 5 invoices and let AI extract structured data automatically
             </p>
           </div>
 
-          <UploadZone
-            onFileSelect={handleFileSelect}
+          <MultiUploadZone
+            onFilesSelect={handleFilesSelect}
             disabled={isProcessing}
-            maxSizeMb={10}
+            maxSizeMb={50}
+            maxFiles={5}
             acceptedFormats={['.pdf']}
           />
 
@@ -118,7 +218,7 @@ function App() {
                 status={uploadState.status}
                 statusText={
                   uploadState.status === 'processing'
-                    ? 'AI is extracting data from your document...'
+                    ? `AI is extracting data from ${uploadState.files.length} file${uploadState.files.length > 1 ? 's' : ''}...`
                     : undefined
                 }
               />
@@ -147,7 +247,7 @@ function App() {
         </section>
 
         {/* Results Section */}
-        {uploadState.status === 'success' && uploadState.result && (
+        {uploadState.status === 'success' && (
           <section className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-900">
@@ -158,10 +258,32 @@ function App() {
                 className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
               >
                 <RotateCcw className="w-4 h-4" />
-                Extract Another
+                Extract More
               </button>
             </div>
-            <ResultsPanel result={uploadState.result} />
+            <ErrorBoundary
+              fallback={
+                <div className="bg-white rounded-xl shadow-sm border border-red-200 p-6">
+                  <div className="text-center">
+                    <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                    <h3 className="font-medium text-red-800 mb-2">Failed to render results</h3>
+                    <p className="text-sm text-red-600 mb-4">There was an error displaying the extraction results.</p>
+                    <button
+                      onClick={handleReset}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                </div>
+              }
+            >
+              {uploadState.batchResult ? (
+                <BatchResultsPanel batchResult={uploadState.batchResult} />
+              ) : uploadState.result ? (
+                <ResultsPanel result={uploadState.result} />
+              ) : null}
+            </ErrorBoundary>
           </section>
         )}
 
@@ -171,18 +293,18 @@ function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <FeatureCard
                 icon="📄"
-                title="Upload PDF"
-                description="Drag and drop or click to upload your invoice or document"
+                title="Upload PDFs"
+                description="Drag and drop up to 5 invoices at once"
               />
               <FeatureCard
                 icon="🤖"
                 title="AI Extraction"
-                description="Our AI analyzes and extracts structured data automatically"
+                description="LLaMA 3.3 70B extracts data with high accuracy"
               />
               <FeatureCard
                 icon="✨"
                 title="Get Results"
-                description="Download extracted data as JSON or view formatted results"
+                description="Download structured JSON or view formatted results"
               />
             </div>
           </section>
@@ -192,7 +314,7 @@ function App() {
       {/* Footer */}
       <footer className="border-t border-slate-200 mt-auto">
         <div className="max-w-5xl mx-auto px-4 py-6 text-center text-sm text-slate-500">
-          PDF Intelligence Extractor • Powered by Local AI (Phi-3 Mini)
+          PDF Intelligence Extractor • Powered by Groq Cloud AI (LLaMA 3.3 70B)
         </div>
       </footer>
     </div>

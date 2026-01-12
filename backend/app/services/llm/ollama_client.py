@@ -102,7 +102,11 @@ class OllamaClient:
         except httpx.ConnectError:
             raise LLMConnectionError("ollama", self.host)
         except Exception as e:
-            raise LLMResponseError("ollama", f"Failed to list models: {e}")
+            # Surface the actual Ollama error message for easier debugging
+            raise LLMResponseError(
+                reason=f"Ollama list_models failed: {e}",
+                raw_response=str(e),
+            )
 
     async def generate(
         self,
@@ -174,9 +178,17 @@ class OllamaClient:
             elapsed = time.time() - start_time
             raise LLMTimeoutError("ollama", self.timeout, elapsed)
         except httpx.HTTPStatusError as e:
-            raise LLMResponseError("ollama", f"HTTP {e.response.status_code}")
+            # Include HTTP status and response body from Ollama
+            raise LLMResponseError(
+                reason=f"Ollama HTTP {e.response.status_code} at {self.generate_url}",
+                raw_response=e.response.text if e.response is not None else None,
+            )
         except Exception as e:
-            raise LLMResponseError("ollama", str(e))
+            # Pass through the full error message
+            raise LLMResponseError(
+                reason=f"Ollama error: {e}",
+                raw_response=str(e),
+            )
 
         logger.step(3, 3, "Processing response")
 
@@ -306,9 +318,17 @@ class OllamaClient:
             elapsed = time.time() - start_time
             raise LLMTimeoutError("ollama", self.timeout, elapsed)
         except httpx.HTTPStatusError as e:
-            raise LLMResponseError("ollama", f"HTTP {e.response.status_code}")
+            # Include HTTP status and response body from Ollama
+            raise LLMResponseError(
+                reason=f"Ollama HTTP {e.response.status_code} at {self.generate_url}",
+                raw_response=e.response.text if e.response is not None else None,
+            )
         except Exception as e:
-            raise LLMResponseError("ollama", str(e))
+            # Pass through the full error message
+            raise LLMResponseError(
+                reason=f"Ollama error: {e}",
+                raw_response=str(e),
+            )
 
         logger.step(3, 3, "Processing response")
 

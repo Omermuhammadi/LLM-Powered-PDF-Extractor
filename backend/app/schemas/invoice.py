@@ -5,6 +5,7 @@ This module defines the data models for invoice extraction results,
 including line items, totals, and confidence scoring for each field.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -12,6 +13,22 @@ from typing import Optional
 from pydantic import Field, field_validator, model_validator
 
 from app.schemas.base import BaseExtractedData, FieldConfidence
+
+
+def parse_percentage(value) -> Optional[float]:
+    """Parse percentage values like '16%', '8.25%', '16' into floats."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        # Remove % sign and any whitespace
+        cleaned = re.sub(r"[%\s]", "", value)
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
 
 
 class LineItem(BaseExtractedData):
@@ -50,6 +67,11 @@ class LineItem(BaseExtractedData):
         description="Tax rate percentage for this item",
     )
 
+    @field_validator("tax_rate", mode="before")
+    @classmethod
+    def parse_tax_rate(cls, v):
+        return parse_percentage(v)
+
     # Field confidence scores
     description_confidence: FieldConfidence = Field(
         default=FieldConfidence.LOW,
@@ -71,17 +93,21 @@ class LineItem(BaseExtractedData):
     @model_validator(mode="after")
     def validate_line_item_consistency(self) -> "LineItem":
         """Validate line item amount matches quantity * unit_price."""
-        if (
-            self.quantity is not None
-            and self.unit_price is not None
-            and self.amount is not None
-        ):
-            expected = Decimal(str(self.quantity)) * self.unit_price
-            # Allow small tolerance for rounding
-            tolerance = Decimal("0.01")
-            if abs(self.amount - expected) > tolerance:
-                # Don't fail, but mark as potentially inconsistent
-                self.amount_confidence = FieldConfidence.LOW
+        try:
+            if (
+                self.quantity is not None
+                and self.unit_price is not None
+                and self.amount is not None
+            ):
+                expected = Decimal(str(self.quantity)) * self.unit_price
+                # Allow small tolerance for rounding
+                tolerance = Decimal("0.01")
+                if abs(self.amount - expected) > tolerance:
+                    # Don't fail, but mark as potentially inconsistent
+                    self.amount_confidence = FieldConfidence.LOW
+        except (ValueError, TypeError, RecursionError):
+            # Skip validation on error
+            pass
         return self
 
 
@@ -253,6 +279,12 @@ class InvoiceData(BaseExtractedData):
         le=100,
         description="Overall tax rate percentage",
     )
+
+    @field_validator("tax_rate", "discount_percentage", mode="before")
+    @classmethod
+    def parse_percentage_fields(cls, v):
+        return parse_percentage(v)
+
     discount_amount: Optional[Decimal] = Field(
         default=None,
         ge=0,
@@ -338,31 +370,35 @@ class InvoiceData(BaseExtractedData):
     @model_validator(mode="after")
     def validate_totals_consistency(self) -> "InvoiceData":
         """Validate that invoice totals are mathematically consistent."""
-        # Check if line items sum to subtotal
-        if self.line_items and self.subtotal is not None:
-            items_total = sum(
-                item.amount for item in self.line_items if item.amount is not None
-            )
-            if items_total > 0:
+        try:
+            # Check if line items sum to subtotal
+            if self.line_items and self.subtotal is not None:
+                items_total = sum(
+                    item.amount for item in self.line_items if item.amount is not None
+                )
+                if items_total > 0:
+                    tolerance = Decimal("0.01")
+                    if abs(self.subtotal - items_total) > tolerance:
+                        # Mark subtotal confidence as low if mismatch
+                        self.subtotal_confidence = FieldConfidence.LOW
+
+            # Check if subtotal + tax - discount = total
+            if self.subtotal is not None and self.total_amount is not None:
+                calculated_total = self.subtotal
+                if self.tax_amount is not None:
+                    calculated_total += self.tax_amount
+                if self.discount_amount is not None:
+                    calculated_total -= self.discount_amount
+                if self.shipping_amount is not None:
+                    calculated_total += self.shipping_amount
+
                 tolerance = Decimal("0.01")
-                if abs(self.subtotal - items_total) > tolerance:
-                    # Mark subtotal confidence as low if mismatch
-                    self.subtotal_confidence = FieldConfidence.LOW
-
-        # Check if subtotal + tax - discount = total
-        if self.subtotal is not None and self.total_amount is not None:
-            calculated_total = self.subtotal
-            if self.tax_amount is not None:
-                calculated_total += self.tax_amount
-            if self.discount_amount is not None:
-                calculated_total -= self.discount_amount
-            if self.shipping_amount is not None:
-                calculated_total += self.shipping_amount
-
-            tolerance = Decimal("0.01")
-            if abs(self.total_amount - calculated_total) > tolerance:
-                # Don't fail, but could affect confidence
-                pass
+                if abs(self.total_amount - calculated_total) > tolerance:
+                    # Don't fail, but could affect confidence
+                    pass
+        except (ValueError, TypeError, RecursionError):
+            # Skip validation on error
+            pass
 
         return self
 

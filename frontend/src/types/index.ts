@@ -24,11 +24,28 @@ export interface DocumentMetadata {
   total_words?: number;
 }
 
+export interface ValidationIssue {
+  field_name: string;
+  is_valid: boolean;
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  suggestion?: string | null;
+}
+
+export interface FieldScore {
+  field_name: string;
+  score: number;
+  confidence: 'high' | 'medium' | 'low' | 'unknown';
+  extracted_value?: string | null;
+  source: string;
+  warnings: string[];
+}
+
 export interface ValidationSummary {
   is_valid: boolean;
   overall_score: number;
-  field_scores?: Record<string, number>;
-  issues?: string[];
+  field_scores?: FieldScore[];
+  issues?: ValidationIssue[];
   critical_issues?: number;
   warning_issues?: number;
   fields_extracted?: number;
@@ -70,11 +87,22 @@ export interface ComponentStatus {
 
 // Upload state types
 export interface UploadState {
-  file: File | null;
+  files: File[];
   progress: number;
   status: 'idle' | 'uploading' | 'processing' | 'success' | 'error';
   error?: string;
   result?: ExtractionResponse;
+  batchResult?: BatchExtractionResponse;
+}
+
+// Batch extraction response
+export interface BatchExtractionResponse {
+  batch_id: string;
+  total_files: number;
+  successful: number;
+  failed: number;
+  total_time: number;
+  results: ExtractionResponse[];
 }
 
 // Invoice data type
@@ -88,11 +116,23 @@ export interface InvoiceData {
   vendor_phone?: string;
   customer_name?: string;
   customer_address?: string;
+  customer_email?: string;
+  bill_to?: string;
+  ship_to?: string;
   subtotal?: number;
   tax_amount?: number;
+  tax_rate?: number;
+  discount_amount?: number;
+  discount_percentage?: number;
+  shipping_amount?: number;
   total_amount?: number;
   currency?: string;
   payment_terms?: string;
+  payment_method?: string;
+  notes?: string;
+  order_id?: string;
+  amount_paid?: number;
+  balance_due?: number;
   line_items?: LineItem[];
 }
 
@@ -100,5 +140,6 @@ export interface LineItem {
   description?: string;
   quantity?: number;
   unit_price?: number;
+  price?: number;  // alias for unit_price
   amount?: number;
 }

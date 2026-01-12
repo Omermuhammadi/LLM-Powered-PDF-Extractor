@@ -1,48 +1,39 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, FileText, X, AlertCircle } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { Upload, FileText, X, AlertCircle, Files } from 'lucide-react';
 import clsx from 'clsx';
 
-interface UploadZoneProps {
-  onFileSelect: (file: File) => void;
+interface MultiUploadZoneProps {
+  onFilesSelect: (files: File[]) => void;
   disabled?: boolean;
   maxSizeMb?: number;
+  maxFiles?: number;
   acceptedFormats?: string[];
 }
 
-export function UploadZone({
-  onFileSelect,
+export function MultiUploadZone({
+  onFilesSelect,
   disabled = false,
-  maxSizeMb = 10,
+  maxSizeMb = 50,
+  maxFiles = 5,
   acceptedFormats = ['.pdf'],
-}: UploadZoneProps) {
+}: MultiUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Reset internal state when disabled prop changes (e.g., when processing completes)
-  useEffect(() => {
-    if (!disabled) {
-      // When becoming enabled again (e.g., after reset), clear internal state
-      // Only do this if there's no file currently selected externally
-      // This helps keep state in sync
-    }
-  }, [disabled]);
 
   const validateFile = useCallback(
     (file: File): string | null => {
       if (!file) return 'No file provided';
 
-      // Check file type
       const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '');
       if (!acceptedFormats.includes(ext)) {
-        return `Invalid file type. Accepted formats: ${acceptedFormats.join(', ')}`;
+        return `Invalid file type: ${file.name}. Only PDF files accepted.`;
       }
 
-      // Check file size
       const sizeMb = file.size / (1024 * 1024);
       if (sizeMb > maxSizeMb) {
-        return `File too large. Maximum size: ${maxSizeMb}MB`;
+        return `File too large: ${file.name}. Maximum size: ${maxSizeMb}MB`;
       }
 
       return null;
@@ -50,29 +41,36 @@ export function UploadZone({
     [acceptedFormats, maxSizeMb]
   );
 
-  const handleFile = useCallback(
-    (file: File) => {
-      console.log('[UploadZone] Processing file:', file?.name);
+  const handleFiles = useCallback(
+    (fileList: FileList | File[]) => {
+      const files = Array.from(fileList);
 
-      const validationError = validateFile(file);
-      if (validationError) {
-        console.log('[UploadZone] Validation error:', validationError);
-        setError(validationError);
-        setSelectedFile(null);
+      // Check max files
+      if (files.length > maxFiles) {
+        setError(`Too many files. Maximum ${maxFiles} files allowed.`);
         return;
       }
 
+      // Validate each file
+      for (const file of files) {
+        const validationError = validateFile(file);
+        if (validationError) {
+          setError(validationError);
+          return;
+        }
+      }
+
       setError(null);
-      setSelectedFile(file);
+      setSelectedFiles(files);
 
       try {
-        onFileSelect(file);
+        onFilesSelect(files);
       } catch (err) {
-        console.error('[UploadZone] Error calling onFileSelect:', err);
-        setError('Failed to process file. Please try again.');
+        console.error('[MultiUploadZone] Error calling onFilesSelect:', err);
+        setError('Failed to process files. Please try again.');
       }
     },
-    [validateFile, onFileSelect]
+    [validateFile, onFilesSelect, maxFiles]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -95,45 +93,51 @@ export function UploadZone({
       e.stopPropagation();
       setIsDragging(false);
 
-      if (disabled) {
-        console.log('[UploadZone] Drop ignored - disabled');
-        return;
-      }
+      if (disabled) return;
 
       const files = e.dataTransfer?.files;
       if (files && files.length > 0) {
-        handleFile(files[0]);
+        handleFiles(files);
       }
     },
-    [disabled, handleFile]
+    [disabled, handleFiles]
   );
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (files && files.length > 0) {
-        handleFile(files[0]);
+        handleFiles(files);
       }
-      // Clear the input so the same file can be selected again
       if (inputRef.current) {
         inputRef.current.value = '';
       }
     },
-    [handleFile]
+    [handleFiles]
   );
 
   const handleClick = useCallback(() => {
-    console.log('[UploadZone] Click - disabled:', disabled);
     if (!disabled && inputRef.current) {
       inputRef.current.click();
     }
   }, [disabled]);
 
+  const removeFile = useCallback((index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedFiles(prev => {
+      const newFiles = prev.filter((_, i) => i !== index);
+      if (newFiles.length === 0) {
+        setError(null);
+      }
+      return newFiles;
+    });
+  }, []);
+
   const clearSelection = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[UploadZone] Clearing selection');
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setError(null);
     if (inputRef.current) {
       inputRef.current.value = '';
@@ -146,6 +150,8 @@ export function UploadZone({
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   };
+
+  const totalSize = selectedFiles.reduce((acc, file) => acc + file.size, 0);
 
   return (
     <div className="w-full">
@@ -171,28 +177,56 @@ export function UploadZone({
           accept={acceptedFormats.join(',')}
           onChange={handleInputChange}
           disabled={disabled}
+          multiple
           className="hidden"
         />
 
-        {selectedFile ? (
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <FileText className="w-6 h-6 text-blue-600" />
+        {selectedFiles.length > 0 ? (
+          <div className="w-full space-y-3">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Files className="w-5 h-5 text-blue-600" />
+                <span className="font-medium text-slate-900">
+                  {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
+                </span>
+                <span className="text-sm text-slate-500">
+                  ({formatFileSize(totalSize)} total)
+                </span>
+              </div>
+              <button
+                onClick={clearSelection}
+                className="text-sm text-red-600 hover:text-red-700 hover:underline"
+              >
+                Clear all
+              </button>
             </div>
-            <div className="flex-1">
-              <p className="font-medium text-slate-900 truncate max-w-xs">
-                {selectedFile.name}
-              </p>
-              <p className="text-sm text-slate-500">
-                {formatFileSize(selectedFile.size)}
-              </p>
+
+            <div className="space-y-2 max-h-[200px] overflow-y-auto">
+              {selectedFiles.map((file, index) => (
+                <div
+                  key={`${file.name}-${index}`}
+                  className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg"
+                >
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-900 truncate">
+                      {file.name}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {formatFileSize(file.size)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => removeFile(index, e)}
+                    className="p-1 hover:bg-slate-200 rounded-full transition-colors flex-shrink-0"
+                  >
+                    <X className="w-4 h-4 text-slate-500" />
+                  </button>
+                </div>
+              ))}
             </div>
-            <button
-              onClick={clearSelection}
-              className="p-1 hover:bg-slate-200 rounded-full transition-colors"
-            >
-              <X className="w-5 h-5 text-slate-500" />
-            </button>
           </div>
         ) : (
           <>
@@ -210,13 +244,13 @@ export function UploadZone({
               />
             </div>
             <p className="text-slate-700 font-medium mb-1">
-              {isDragging ? 'Drop your PDF here' : 'Drag & drop your PDF here'}
+              {isDragging ? 'Drop your PDF(s) here' : 'Drag & drop your PDF(s) here'}
             </p>
             <p className="text-slate-500 text-sm">
               or <span className="text-blue-600 hover:underline">browse files</span>
             </p>
             <p className="text-slate-400 text-xs mt-2">
-              Maximum file size: {maxSizeMb}MB
+              Up to {maxFiles} files • Maximum {maxSizeMb}MB each
             </p>
           </>
         )}

@@ -12,6 +12,7 @@ from typing import Any
 
 from app.core import ExtractionError, logger
 from app.core.config import get_settings
+from app.services.extraction.post_processor import post_process_invoice
 from app.services.llm import LLMClient, get_llm_client
 from app.services.llm.parser import (
     clean_extracted_data,
@@ -125,7 +126,7 @@ class ExtractionOrchestrator:
     def __init__(
         self,
         llm_client: LLMClient | None = None,
-        max_retries: int = 2,
+        max_retries: int | None = None,
     ):
         """
         Initialize the orchestrator.
@@ -134,9 +135,12 @@ class ExtractionOrchestrator:
             llm_client: Optional LLM client (uses singleton if not provided)
             max_retries: Maximum LLM extraction retries
         """
-        self._llm = llm_client or get_llm_client()
-        self._max_retries = max_retries
         self._settings = get_settings()
+        self._llm = llm_client or get_llm_client()
+        # Use configured retries unless explicitly overridden
+        self._max_retries = (
+            max_retries if max_retries is not None else self._settings.llm_max_retries
+        )
 
     def extract_from_pdf(
         self,
@@ -210,6 +214,14 @@ class ExtractionOrchestrator:
 
             # Clean data
             cleaned_data = clean_extracted_data(parse_result.data, doc_type_str)
+
+            # Post-process for invoices
+            if doc_type_str == "invoice":
+                post_result = post_process_invoice(cleaned_data)
+                cleaned_data = post_result.data
+                # Add any post-processing warnings
+                if post_result.warnings:
+                    logger.warning(f"Post-processing warnings: {post_result.warnings}")
 
             # Validate
             is_valid, missing, warnings = validate_extracted_fields(
@@ -322,6 +334,12 @@ class ExtractionOrchestrator:
                 )
 
             cleaned_data = clean_extracted_data(parse_result.data, doc_type_str)
+
+            # Post-process for invoices
+            if doc_type_str == "invoice":
+                post_result = post_process_invoice(cleaned_data)
+                cleaned_data = post_result.data
+
             is_valid, missing, warnings = validate_extracted_fields(
                 cleaned_data, required, doc_type_str
             )
@@ -387,7 +405,7 @@ class ExtractionOrchestrator:
                     prompt=user_prompt,
                     system=system_prompt,
                     temperature=0.1,
-                    max_tokens=2048,
+                    max_tokens=self._settings.llm_max_tokens,
                     json_mode=True,
                 )
 

@@ -10,6 +10,10 @@ from app.services.extraction.orchestrator import (
     ExtractionOrchestrator,
     ExtractionResult,
 )
+from app.services.extraction.post_processor import (
+    ProcessingResult,
+    post_process_invoice,
+)
 from app.services.extraction.validator import (
     ExtractionValidator,
     ValidationConfig,
@@ -22,4 +26,6 @@ __all__ = [
     "ExtractionValidator",
     "ValidationConfig",
     "validate_extraction",
+    "post_process_invoice",
+    "ProcessingResult",
 ]
