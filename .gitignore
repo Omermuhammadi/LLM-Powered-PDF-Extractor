@@ -109,6 +109,10 @@ desktop.ini
 uploads/
 *.pdf
 
+# Sample generator outputs (keep samples/generate_samples.py)
+samples/*.pdf
+samples/*.txt
+
 # Environment files (keep .env.example)
 .env
 .env.local
