@@ -1,6 +1,13 @@
 import axios from 'axios';
 import type { AxiosProgressEvent } from 'axios';
-import type { ExtractionResponse, HealthResponse, BatchExtractionResponse } from '../types';
+import type {
+  ExtractionResponse,
+  HealthResponse,
+  BatchExtractionResponse,
+  RankingResult,
+  CandidateComparison,
+  FullCandidateAnalysis,
+} from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -130,6 +137,100 @@ export async function checkLlmHealth(): Promise<{
   details?: Record<string, unknown>;
 }> {
   const response = await api.get('/health/llm');
+  return response.data;
+}
+
+// Resume Analyzer API Methods
+
+export interface RankingOptions {
+  jobTitle?: string;
+  companyName?: string;
+  onProgress?: (progress: number) => void;
+}
+
+/**
+ * Rank multiple resumes against a job description.
+ * Returns ranked list with comparison data and hiring recommendations.
+ */
+export async function rankResumes(
+  resumeFiles: File[],
+  jobDescriptionText: string,
+  options: RankingOptions = {}
+): Promise<RankingResult> {
+  const formData = new FormData();
+
+  // Append all resume files
+  resumeFiles.forEach((file) => {
+    formData.append('resume_files', file);
+  });
+
+  formData.append('job_description_text', jobDescriptionText);
+
+  if (options.jobTitle) {
+    formData.append('job_title', options.jobTitle);
+  }
+  if (options.companyName) {
+    formData.append('company_name', options.companyName);
+  }
+
+  const response = await api.post<RankingResult>('/resume/rank', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+      if (progressEvent.total && options.onProgress) {
+        const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        options.onProgress(Math.min(progress, 30)); // Upload is 0-30%
+      }
+    },
+  });
+
+  return response.data;
+}
+
+/**
+ * Compare two candidates side-by-side.
+ * Returns detailed comparison with winner determination.
+ */
+export async function compareResumes(
+  resumeFile1: File,
+  resumeFile2: File,
+  jobDescriptionText: string
+): Promise<CandidateComparison> {
+  const formData = new FormData();
+
+  formData.append('resume_file_1', resumeFile1);
+  formData.append('resume_file_2', resumeFile2);
+  formData.append('job_description_text', jobDescriptionText);
+
+  const response = await api.post<CandidateComparison>('/resume/compare', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  return response.data;
+}
+
+/**
+ * Perform full candidate analysis on a single resume.
+ * Returns ATS score, fit analysis, red flags, and recommendations.
+ */
+export async function analyzeResume(
+  resumeFile: File,
+  jobDescriptionText: string
+): Promise<FullCandidateAnalysis> {
+  const formData = new FormData();
+
+  formData.append('resume_file', resumeFile);
+  formData.append('job_description_text', jobDescriptionText);
+
+  const response = await api.post<FullCandidateAnalysis>('/resume/full-analysis', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
   return response.data;
 }
 

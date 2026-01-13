@@ -143,3 +143,162 @@ export interface LineItem {
   price?: number;  // alias for unit_price
   amount?: number;
 }
+
+// Resume Analyzer Types
+export type RecommendationType =
+  | 'strong_hire'
+  | 'good_fit'
+  | 'potential_fit'
+  | 'needs_review'
+  | 'not_recommended';
+
+export type RedFlagSeverity = 'high' | 'medium' | 'low';
+
+export type RedFlagType =
+  | 'short_tenure'
+  | 'employment_gap'
+  | 'overqualified'
+  | 'underqualified'
+  | 'frequent_job_changes'
+  | 'career_regression'
+  | 'overlapping_jobs'
+  | 'missing_recent_experience'
+  | 'no_progression'
+  | 'education_mismatch'
+  | 'skill_gaps'
+  | 'other';
+
+export interface RedFlag {
+  flag_type: RedFlagType;
+  severity: RedFlagSeverity;
+  title: string;
+  description: string;
+  evidence?: string | null;
+  suggestion?: string | null;
+}
+
+export interface StrengthItem {
+  category: string;
+  title: string;
+  description: string;
+  relevance_score: number;
+}
+
+export interface CareerProgression {
+  trajectory: string;
+  avg_tenure_months: number;
+  longest_tenure_months: number;
+  total_companies: number;
+  has_leadership_progression: boolean;
+  progression_summary: string;
+}
+
+export interface FitScoreBreakdown {
+  skills_alignment: number;
+  experience_match: number;
+  education_fit: number;
+  career_trajectory: number;
+  cultural_signals: number;
+}
+
+export interface CandidateFitResult {
+  fit_score: number;
+  fit_score_breakdown?: FitScoreBreakdown | null;
+  recommendation: RecommendationType;
+  recommendation_text: string;
+  strengths: StrengthItem[];
+  weaknesses: string[];
+  red_flags: RedFlag[];
+  red_flag_count: number;
+  has_critical_red_flags: boolean;
+  career_progression?: CareerProgression | null;
+  executive_summary: string;
+  interview_questions: string[];
+  suggested_level?: string | null;
+  analysis_confidence: number;
+}
+
+export interface FullCandidateAnalysis {
+  success: boolean;
+  candidate_name?: string | null;
+  candidate_email?: string | null;
+  candidate_current_role?: string | null;
+  candidate_experience_years?: number | null;
+  job_title?: string | null;
+  company_name?: string | null;
+  overall_score: number;
+  ats_score: number;
+  matched_skills: string[];
+  missing_skills: string[];
+  fit_analysis?: CandidateFitResult | null;
+  resume_data: Record<string, unknown>;
+  jd_data: Record<string, unknown>;
+  processing_time_ms: number;
+  error?: string | null;
+}
+
+export interface CandidateRankingScore {
+  rank: number;
+  file_name: string;
+  candidate_name?: string | null;
+  overall_score: number;
+  ats_score: number;
+  fit_score: number;
+  recommendation: RecommendationType;
+  strengths_count: number;
+  red_flags_count: number;
+  has_critical_red_flags: boolean;
+  suggested_level?: string | null;
+  executive_summary?: string | null;
+}
+
+export interface CandidateComparison {
+  file_name_1: string;
+  file_name_2: string;
+  overall_score_1: number;
+  overall_score_2: number;
+  overall_score_diff: number;
+  ats_score_1: number;
+  ats_score_2: number;
+  fit_score_1: number;
+  fit_score_2: number;
+  matched_skills_1: string[];
+  matched_skills_2: string[];
+  unique_skills_1: string[];
+  unique_skills_2: string[];
+  common_skills: string[];
+  red_flags_1: number;
+  red_flags_2: number;
+  critical_flags_1: boolean;
+  critical_flags_2: boolean;
+  recommendation_1: RecommendationType;
+  recommendation_2: RecommendationType;
+  winner: number;
+  winner_reason: string;
+}
+
+export interface RankingResult {
+  success: boolean;
+  job_title?: string | null;
+  company_name?: string | null;
+  total_candidates: number;
+  rankings: CandidateRankingScore[];
+  top_candidate?: CandidateRankingScore | null;
+  top_candidate_analysis?: FullCandidateAnalysis | null;
+  all_analyses: Record<string, FullCandidateAnalysis>;
+  score_distribution: Record<string, number>;
+  average_score: number;
+  hiring_recommendation: string;
+  processing_time_ms: number;
+  error?: string | null;
+}
+
+// Resume Analyzer State
+export interface ResumeAnalyzerState {
+  mode: 'idle' | 'uploading' | 'analyzing' | 'complete' | 'error';
+  jobDescriptionText: string;
+  resumeFiles: File[];
+  rankingResult?: RankingResult;
+  error?: string;
+  progress: number;
+}

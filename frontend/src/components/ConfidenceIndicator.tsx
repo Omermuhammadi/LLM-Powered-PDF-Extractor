@@ -94,7 +94,7 @@ export function ValidationScore({
 
   // Calculate display values - use sensible defaults if not provided
   const displayExtracted = fieldsExtracted ?? (percentage > 0 ? Math.round(percentage / 10) : 0);
-  const displayExpected = fieldsExpected ?? 10;
+  const expectedFields = fieldsExpected ?? 10;
 
   return (
     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
@@ -112,7 +112,7 @@ export function ValidationScore({
             {percentage >= 80 ? 'Excellent' : percentage >= 60 ? 'Good' : percentage >= 40 ? 'Needs Review' : 'Low Confidence'}
           </p>
           <p className="text-sm text-slate-500">
-            {displayExtracted > 0 ? `${displayExtracted} fields extracted` : `Confidence: ${percentage}%`}
+            {displayExtracted > 0 ? `${displayExtracted}/${expectedFields} fields extracted` : `Confidence: ${percentage}%`}
           </p>
         </div>
       </div>

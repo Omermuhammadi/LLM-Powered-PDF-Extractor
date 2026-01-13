@@ -139,41 +139,128 @@ INVOICE_PROMPT = PromptTemplate(
 
 
 # =============================================================================
-# Resume Extraction Prompt
+# PRODUCTION-GRADE Resume Extraction Prompt
 # =============================================================================
 
-RESUME_SYSTEM_PROMPT = """You are a precise document extraction AI. Your task is to extract structured data from resume/CV text.
+RESUME_SYSTEM_PROMPT = """You are an expert HR/recruitment AI with 99.9% accuracy in resume parsing. Your job is to extract structured data from resumes/CVs of ANY format or template.
 
-IMPORTANT RULES:
-1. Return ONLY valid JSON - no explanations, no markdown, no extra text
-2. Use null for any field you cannot find or are unsure about
-3. Do NOT invent or hallucinate information
-4. Extract exact values as they appear in the document
-5. For arrays, return empty array [] if no items found"""
+CRITICAL EXTRACTION RULES:
+1. Return ONLY valid JSON - absolutely no explanations, markdown, or extra text
+2. Use null for any field NOT found in the document
+3. NEVER invent, guess, or hallucinate data - extract only what exists
+4. Clean up OCR artifacts and formatting issues in text
+5. Infer total experience from job dates when not explicitly stated
 
-RESUME_USER_TEMPLATE = """Extract the following fields from this resume:
+EXPERIENCE EXTRACTION - EXTREMELY IMPORTANT:
+- Extract ALL work experience entries, starting from MOST RECENT
+- For each job, capture: company, role/title, duration, key responsibilities
+- Calculate duration_months from date ranges (e.g., "Jan 2022 - Dec 2023" = 24 months)
+- "Present" or "Current" means the job is ongoing (is_current: true)
+- Clean bullet points - combine broken lines, remove special characters
 
-REQUIRED FIELDS:
-- candidate_name (string): Full name of the candidate
-- email (string): Email address
-- phone (string): Phone number
+SKILLS EXTRACTION:
+- Capture ALL skills mentioned anywhere in the resume
+- Include technical skills (programming languages, tools, frameworks)
+- Include soft skills (leadership, communication, teamwork)
+- Don't duplicate - each skill should appear once
+- Keep original casing (Python, not PYTHON or python)
 
-OPTIONAL FIELDS:
-- linkedin (string): LinkedIn profile URL
-- github (string): GitHub profile URL
-- location (string): City, State/Country
-- summary (string): Professional summary or objective (first 200 chars)
-- skills (array of strings): List of skills mentioned
-- experience (array of objects): Work history with company, role, duration, description
-- education (array of objects): Education with institution, degree, field, year
+EDUCATION EXTRACTION:
+- Extract degree type (Bachelor's, Master's, PhD, etc.)
+- Extract field of study / major
+- Extract institution name
+- Extract graduation year
+- Extract GPA if mentioned (normalize to 4.0 scale if needed)
 
-EXAMPLE OUTPUT:
-{{"candidate_name": "John Doe", "email": "john@email.com", "phone": "555-1234", "linkedin": "linkedin.com/in/johndoe", "github": "github.com/johndoe", "location": "New York, NY", "summary": "Experienced software engineer...", "skills": ["Python", "JavaScript", "AWS"], "experience": [{{"company": "Tech Corp", "role": "Senior Developer", "duration": "2020-2023", "description": "Led team of 5..."}}], "education": [{{"institution": "MIT", "degree": "BS", "field": "Computer Science", "year": "2018"}}]}}
+COMMON RESUME LAYOUTS TO RECOGNIZE:
+1. Chronological: Experience listed newest-to-oldest
+2. Functional: Skills-focused, less emphasis on timeline
+3. Combination: Both skills and chronological experience
+4. Academic CV: Publications, research, teaching emphasis
+5. Modern/Creative: Non-traditional layouts, portfolios
+6. ATS-Optimized: Keyword-heavy, simple formatting"""
 
-RESUME TEXT:
+RESUME_USER_TEMPLATE = """Extract ALL resume data from the document below. Be thorough and precise.
+
+REQUIRED JSON STRUCTURE:
+{{
+  "candidate_name": "Full name of the candidate",
+  "email": "Email address",
+  "phone": "Phone number with country code if present",
+  "location": "City, State/Country",
+  "linkedin_url": "LinkedIn profile URL",
+  "github_url": "GitHub profile URL if present",
+  "portfolio_url": "Portfolio or personal website if present",
+  "current_role": "Current or most recent job title",
+  "current_company": "Current or most recent employer",
+  "summary": "Professional summary or objective (first 500 chars)",
+  "total_experience_years": 5.5,
+  "skills": ["Python", "JavaScript", "AWS", "Docker"],
+  "technical_skills": ["Python", "AWS", "Docker", "SQL"],
+  "soft_skills": ["Leadership", "Communication"],
+  "experience": [
+    {{
+      "company": "Company Name",
+      "role": "Job Title",
+      "duration": "Jan 2022 - Present",
+      "duration_months": 24,
+      "start_date": "2022-01",
+      "end_date": "Present",
+      "location": "City, Country",
+      "is_current": true,
+      "highlights": [
+        "Led team of 5 engineers",
+        "Increased revenue by 30%"
+      ]
+    }}
+  ],
+  "education": [
+    {{
+      "institution": "University Name",
+      "degree": "Bachelor of Science",
+      "field_of_study": "Computer Science",
+      "year": "2018",
+      "start_year": 2014,
+      "end_year": 2018,
+      "gpa": 3.8,
+      "honors": "Magna Cum Laude",
+      "location": "City, Country"
+    }}
+  ],
+  "certifications": ["AWS Solutions Architect", "PMP"],
+  "languages": ["English: Native", "Spanish: Professional"],
+  "projects": [
+    {{
+      "name": "Project Name",
+      "description": "Brief description",
+      "technologies": ["React", "Node.js"],
+      "url": "https://github.com/..."
+    }}
+  ],
+  "awards": ["Employee of the Year 2022"],
+  "publications": [],
+  "interests": ["Open Source", "Machine Learning"]
+}}
+
+EXPERIENCE DURATION CALCULATION:
+- "Jan 2022 - Present" with today being Jan 2026 = 48 months
+- "2020 - 2022" = approximately 24 months
+- If only years given, assume Jan to Dec
+
+TOTAL EXPERIENCE CALCULATION:
+- Sum all duration_months from experience entries
+- Convert to years (divide by 12)
+- Account for overlapping jobs (don't double count)
+
+SKILLS GUIDELINES:
+- Extract from dedicated "Skills" section
+- Also extract from job descriptions (technologies used)
+- Keep as individual items, not comma-separated strings
+
+RESUME TEXT TO EXTRACT FROM:
 {text}
 
-JSON:"""
+Return ONLY the JSON object with extracted data:"""
 
 RESUME_PROMPT = PromptTemplate(
     system=RESUME_SYSTEM_PROMPT,
@@ -213,6 +300,68 @@ GENERIC_PROMPT = PromptTemplate(
     user_template=GENERIC_USER_TEMPLATE,
     document_type=DocumentType.UNKNOWN,
 )
+
+
+# =============================================================================
+# Job Description Extraction Prompt (for ATS scoring)
+# =============================================================================
+
+JD_SYSTEM_PROMPT = """You are an expert HR/recruitment AI that analyzes job descriptions. Your job is to extract structured requirements from job postings to enable ATS scoring.
+
+CRITICAL EXTRACTION RULES:
+1. Return ONLY valid JSON - absolutely no explanations, markdown, or extra text
+2. Use null for any field NOT found in the document
+3. NEVER invent requirements - extract only what is explicitly stated
+4. Distinguish between REQUIRED and PREFERRED/NICE-TO-HAVE skills
+5. Extract all technical terms, tools, and technologies mentioned
+
+SKILL CLASSIFICATION:
+- required_skills: Explicitly marked as "required", "must have", "essential", or listed without qualifiers
+- preferred_skills: Marked as "preferred", "nice to have", "bonus", "plus", "ideally"
+
+EXPERIENCE PARSING:
+- "5+ years" → experience_years_min: 5, experience_years_max: null
+- "3-5 years" → experience_years_min: 3, experience_years_max: 5
+- "Senior" without years → experience_years_min: 5
+- "Junior/Entry" → experience_years_min: 0, experience_years_max: 2
+
+KEYWORD EXTRACTION:
+- Extract ALL technical terms, tools, frameworks, methodologies mentioned
+- Include: programming languages, databases, cloud services, frameworks, methodologies
+- Don't include: generic words like "team", "company", "opportunity\""""
+
+JD_USER_TEMPLATE = """Extract ALL job requirements from the job description below. Be thorough.
+
+REQUIRED JSON STRUCTURE:
+{{
+  "job_title": "The position title",
+  "company_name": "Hiring company name if mentioned",
+  "location": "Job location (city, remote, hybrid)",
+  "job_type": "Full-time, Part-time, Contract, etc.",
+  "experience_required": "Raw text like '5+ years' or 'Senior level'",
+  "experience_years_min": 5,
+  "experience_years_max": 10,
+  "required_skills": ["Python", "AWS", "Docker"],
+  "preferred_skills": ["Kubernetes", "Terraform"],
+  "required_education": "Bachelor's degree in Computer Science",
+  "preferred_education": "Master's degree preferred",
+  "required_certifications": ["AWS Solutions Architect"],
+  "preferred_certifications": ["Kubernetes CKA"],
+  "keywords": ["Python", "AWS", "microservices", "REST API", "agile"],
+  "responsibilities": ["Design and implement...", "Lead team of..."],
+  "benefits": ["Health insurance", "401k", "Remote work"],
+  "salary_range": "$120,000 - $150,000 or null if not mentioned"
+}}
+
+SKILL EXTRACTION TIPS:
+- Look for "Requirements", "Qualifications", "What you'll need" sections
+- Technologies in bullet points are usually required
+- "Experience with X is a plus" → preferred_skills
+
+JOB DESCRIPTION TEXT:
+{text}
+
+Return ONLY the JSON object:"""
 
 
 # =============================================================================
@@ -261,3 +410,24 @@ def format_extraction_prompt(
 
     template = get_prompt_for_type(doc_type)
     return template.format(text=text)
+
+
+def format_jd_extraction_prompt(
+    text: str,
+    max_text_length: int = 8000,
+) -> tuple[str, str]:
+    """
+    Format a job description extraction prompt.
+
+    Args:
+        text: Job description text
+        max_text_length: Maximum text length to include
+
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    if len(text) > max_text_length:
+        text = text[:max_text_length] + "\n\n[Text truncated...]"
+
+    user_prompt = JD_USER_TEMPLATE.format(text=text)
+    return JD_SYSTEM_PROMPT, user_prompt

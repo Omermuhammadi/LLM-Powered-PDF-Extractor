@@ -37,7 +37,8 @@ venv.bak/
 # ===========================================
 # Poetry
 # ===========================================
-poetry.lock
+# Keep poetry.lock for reproducible builds
+# poetry.lock
 
 # ===========================================
 # IDE / Editors
