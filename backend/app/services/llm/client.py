@@ -5,6 +5,7 @@ Provides a unified interface for both local (Ollama) and
 cloud (Groq) LLM inference, with automatic fallback support.
 """
 
+import asyncio
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -230,15 +231,22 @@ class CloudLLMClient(BaseLLMClient):
                 response.raise_for_status()
                 data = response.json()
 
-        except httpx.ConnectError:
-            raise LLMConnectionError("groq", "api.groq.com")
+        except httpx.ConnectError as e:
+            raise LLMConnectionError("api.groq.com", str(e))
         except httpx.TimeoutException:
             elapsed = time.time() - start_time
             raise LLMTimeoutError("groq", self.timeout, elapsed)
         except httpx.HTTPStatusError as e:
-            raise LLMResponseError("groq", f"HTTP {e.response.status_code}")
+            # Preserve HTTP status (e.g., 400 vs 429) so retry logic can make
+            # an informed decision.
+            body = None
+            try:
+                body = e.response.text
+            except Exception:
+                body = None
+            raise LLMResponseError(f"HTTP {e.response.status_code}", body)
         except Exception as e:
-            raise LLMResponseError("groq", str(e))
+            raise LLMResponseError(str(e))
 
         elapsed_ms = (time.time() - start_time) * 1000
 
@@ -298,15 +306,20 @@ class CloudLLMClient(BaseLLMClient):
                 response.raise_for_status()
                 data = response.json()
 
-        except httpx.ConnectError:
-            raise LLMConnectionError("groq", "api.groq.com")
+        except httpx.ConnectError as e:
+            raise LLMConnectionError("api.groq.com", str(e))
         except httpx.TimeoutException:
             elapsed = time.time() - start_time
             raise LLMTimeoutError("groq", self.timeout, elapsed)
         except httpx.HTTPStatusError as e:
-            raise LLMResponseError("groq", f"HTTP {e.response.status_code}")
+            body = None
+            try:
+                body = e.response.text
+            except Exception:
+                body = None
+            raise LLMResponseError(f"HTTP {e.response.status_code}", body)
         except Exception as e:
-            raise LLMResponseError("groq", str(e))
+            raise LLMResponseError(str(e))
 
         elapsed_ms = (time.time() - start_time) * 1000
 
@@ -459,6 +472,24 @@ class LLMClient:
 
         last_error: Exception | None = None
 
+        def _is_retryable_error(err: LLMError) -> bool:
+            if err.code in {"LLM_TIMEOUT", "LLM_CONNECTION_FAILED"}:
+                return True
+
+            if err.code == "LLM_INVALID_RESPONSE":
+                reason = (err.details or {}).get("reason", "")
+                # Don't retry client/input errors.
+                if isinstance(reason, str) and reason.startswith("HTTP "):
+                    try:
+                        status = int(reason.split(" ", 1)[1])
+                    except Exception:
+                        return True
+                    return status in {408, 429, 500, 502, 503, 504}
+                return True
+
+            # Default: retry unknown LLMError types.
+            return True
+
         # Try primary client with retries
         for attempt in range(self._max_retries):
             try:
@@ -475,6 +506,24 @@ class LLMClient:
                 logger.warning(
                     f"Primary LLM failed (attempt {attempt + 1}/{retries}): {e}"
                 )
+
+                # If we're rate-limited, waiting is the only useful retry.
+                if e.code == "LLM_INVALID_RESPONSE":
+                    reason = (e.details or {}).get("reason", "")
+                    if isinstance(reason, str) and reason.startswith("HTTP "):
+                        try:
+                            status = int(reason.split(" ", 1)[1])
+                        except Exception:
+                            status = None
+                        if status == 429 and attempt < self._max_retries - 1:
+                            wait_s = min(2**attempt, 10)
+                            logger.warning(
+                                f"Rate limited by provider (HTTP 429). Waiting {wait_s}s before retry..."
+                            )
+                            await asyncio.sleep(wait_s)
+
+                if not _is_retryable_error(e):
+                    break
 
                 if attempt < self._max_retries - 1:
                     continue
@@ -537,6 +586,32 @@ class LLMClient:
                 logger.warning(
                     f"Primary LLM failed (attempt {attempt + 1}/{retries}): {e}"
                 )
+
+                # Back off a bit on rate limits instead of hammering the API.
+                if e.code == "LLM_INVALID_RESPONSE":
+                    reason = (e.details or {}).get("reason", "")
+                    if isinstance(reason, str) and reason.startswith("HTTP "):
+                        try:
+                            status = int(reason.split(" ", 1)[1])
+                        except Exception:
+                            status = None
+                        if status == 429 and attempt < self._max_retries - 1:
+                            wait_s = min(2**attempt, 10)
+                            logger.warning(
+                                f"Rate limited by provider (HTTP 429). Waiting {wait_s}s before retry..."
+                            )
+                            time.sleep(wait_s)
+
+                # Same retry rules as async path.
+                if e.code == "LLM_INVALID_RESPONSE":
+                    reason = (e.details or {}).get("reason", "")
+                    if isinstance(reason, str) and reason.startswith("HTTP "):
+                        try:
+                            status = int(reason.split(" ", 1)[1])
+                        except Exception:
+                            status = None
+                        if status is not None and status in {400, 401, 403, 404}:
+                            break
 
                 if attempt < self._max_retries - 1:
                     continue

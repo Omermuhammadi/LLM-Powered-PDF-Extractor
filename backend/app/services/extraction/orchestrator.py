@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.core import ExtractionError, logger
+from app.core import ExtractionError, PDFExtractorError, logger
 from app.core.config import get_settings
 from app.services.extraction.post_processor import post_process_invoice
 from app.services.llm import LLMClient, get_llm_client
@@ -265,6 +265,15 @@ class ExtractionOrchestrator:
                 warnings=warnings,
             )
 
+        except PDFExtractorError as e:
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.error(f"Extraction failed: {e}")
+
+            return ExtractionResult(
+                success=False,
+                document_type="unknown",
+                error=e.to_dict(),
+            )
         except Exception as e:
             elapsed_ms = (time.time() - start_time) * 1000
             logger.error(f"Extraction failed: {e}")
@@ -376,6 +385,14 @@ class ExtractionOrchestrator:
                 warnings=warnings,
             )
 
+        except PDFExtractorError as e:
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.error(f"Text extraction failed: {e}")
+            return ExtractionResult(
+                success=False,
+                document_type="unknown",
+                error=e.to_dict(),
+            )
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")
             return ExtractionResult(
@@ -390,34 +407,25 @@ class ExtractionOrchestrator:
         doc_type: DocumentType,
     ) -> tuple[str, float]:
         """
-        Extract fields using LLM with retry logic.
+        Extract fields using LLM.
 
         Returns:
             Tuple of (llm_response_content, duration_ms)
         """
         system_prompt, user_prompt = format_extraction_prompt(doc_type, text)
 
-        last_error: Exception | None = None
+        # Note: retry/fallback is handled inside app.services.llm.client.LLMClient.
+        # Keeping retries in both layers can multiply API calls (e.g., N orchestrator
+        # retries * M client retries), which is expensive and slow.
+        response = self._llm.generate_sync(
+            prompt=user_prompt,
+            system=system_prompt,
+            temperature=0.1,
+            max_tokens=self._settings.llm_max_tokens,
+            json_mode=True,
+        )
 
-        for attempt in range(self._max_retries + 1):
-            try:
-                response = self._llm.generate_sync(
-                    prompt=user_prompt,
-                    system=system_prompt,
-                    temperature=0.1,
-                    max_tokens=self._settings.llm_max_tokens,
-                    json_mode=True,
-                )
-
-                return response.content, response.duration_ms
-
-            except Exception as e:
-                last_error = e
-                if attempt < self._max_retries:
-                    logger.warning(f"LLM attempt {attempt + 1} failed: {e}")
-                    continue
-
-        raise last_error or ExtractionError("unknown", "LLM extraction failed")
+        return response.content, response.duration_ms
 
     def _calculate_confidence(
         self,
