@@ -1,0 +1,27 @@
+# PDF Intelligence Extractor - Backend Requirements
+# Generated for deployment
+
+# FastAPI & Web
+fastapi>=0.109.0,<1.0.0
+uvicorn[standard]>=0.27.0,<1.0.0
+python-multipart>=0.0.6,<1.0.0
+aiofiles>=23.2.1,<24.0.0
+
+# PDF Processing
+pdfplumber>=0.10.3,<1.0.0
+
+# Data Validation
+pydantic>=2.5.3,<3.0.0
+pydantic-settings>=2.1.0,<3.0.0
+
+# HTTP Client (for LLM API calls)
+httpx>=0.26.0,<1.0.0
+
+# Logging & CLI
+rich>=13.7.0,<14.0.0
+
+# Environment
+python-dotenv>=1.0.0,<2.0.0
+
+# Groq API (Cloud LLM)
+groq>=0.4.0,<1.0.0
